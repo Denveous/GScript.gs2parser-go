@@ -1,0 +1,538 @@
+package parser
+
+import (
+	"fmt"
+	"strconv"
+
+	"gs2parser/ast"
+	"gs2parser/lexer"
+)
+
+type Parser struct {
+	toks   []lexer.Token
+	pos    int
+	lamb   int
+	consts map[string]ast.Expr
+}
+
+func Parse(src string) (*ast.Block, error) {
+	toks, err := lexer.Lex(src)
+	if err != nil {
+		return nil, err
+	}
+	p := &Parser{toks: toks, consts: map[string]ast.Expr{}}
+	return p.program()
+}
+
+func (p *Parser) program() (*ast.Block, error) {
+	b := &ast.Block{}
+	for !p.atEnd() {
+		s, err := p.decl()
+		if err != nil {
+			return nil, err
+		}
+		if s != nil {
+			b.Stmts = append(b.Stmts, s)
+		}
+	}
+	return b, nil
+}
+
+func (p *Parser) decl() (ast.Stmt, error) {
+	if p.match("const") {
+		name := p.expectKind(lexer.Ident)
+		p.expect("=")
+		v, err := p.expr(0)
+		if err != nil {
+			return nil, err
+		}
+		p.consts[name.Lit] = v
+		p.expect(";")
+		return nil, nil
+	}
+	if p.match("enum") {
+		if p.cur().Kind == lexer.Ident {
+			p.next()
+		}
+		p.expect("{")
+		idx := 0
+		for !p.match("}") {
+			name := p.expectKind(lexer.Ident).Lit
+			if p.match("=") {
+				v := p.expectKind(lexer.Int)
+				idx, _ = strconv.Atoi(v.Lit)
+			}
+			p.consts[name] = &ast.IntLit{Value: idx}
+			idx++
+			p.match(",")
+		}
+		return nil, nil
+	}
+	return p.stmt()
+}
+
+func (p *Parser) stmt() (ast.Stmt, error) {
+	if p.match(";") {
+		return nil, nil
+	}
+	if p.match("{") {
+		b := &ast.Block{}
+		for !p.match("}") {
+			s, err := p.stmt()
+			if err != nil {
+				return nil, err
+			}
+			if s != nil {
+				b.Stmts = append(b.Stmts, s)
+			}
+		}
+		return b, nil
+	}
+	pub := p.match("public")
+	if p.match("function") {
+		return p.fnDecl(pub)
+	}
+	if p.match("if") {
+		return p.ifStmt()
+	}
+	if p.match("while") {
+		p.expect("(")
+		c, err := p.expr(0)
+		if err != nil {
+			return nil, err
+		}
+		p.expect(")")
+		body, err := p.stmt()
+		return &ast.While{Cond: c, Body: body}, err
+	}
+	if p.match("with") {
+		p.expect("(")
+		t, err := p.expr(0)
+		if err != nil {
+			return nil, err
+		}
+		p.expect(")")
+		body, err := p.stmt()
+		return &ast.With{Target: t, Body: body}, err
+	}
+	if p.match("for") {
+		return p.forStmt()
+	}
+	if p.match("switch") {
+		return p.switchStmt()
+	}
+	if p.match("break") {
+		p.expect(";")
+		return &ast.Break{}, nil
+	}
+	if p.match("continue") {
+		p.expect(";")
+		return &ast.Continue{}, nil
+	}
+	if p.match("return") {
+		if p.match(";") {
+			return &ast.Return{}, nil
+		}
+		v, err := p.expr(0)
+		if err != nil {
+			return nil, err
+		}
+		p.expect(";")
+		return &ast.Return{Value: v}, nil
+	}
+	if p.match("new") && p.cur().Kind == lexer.Ident {
+		name := p.next().Lit
+		if p.match("(") {
+			args, err := p.exprList(")")
+			if err != nil {
+				return nil, err
+			}
+			body, err := p.stmt()
+			blk, _ := body.(*ast.Block)
+			return &ast.NewStmt{Name: name, Args: args, Body: blk}, err
+		}
+		p.pos -= 2
+	}
+	e, err := p.expr(0)
+	if err != nil {
+		return nil, err
+	}
+	if u, ok := e.(*ast.Unary); ok && (u.Op == "++" || u.Op == "--") {
+		u.Prefix = true
+		u.Unused = true
+	}
+	p.expect(";")
+	return e, nil
+}
+
+func (p *Parser) fnDecl(pub bool) (ast.Stmt, error) {
+	first := p.expectKind(lexer.Ident).Lit
+	obj, name := "", first
+	if p.match(".") {
+		obj = first
+		name = p.expectKind(lexer.Ident).Lit
+	}
+	p.expect("(")
+	args, err := p.exprList(")")
+	if err != nil {
+		return nil, err
+	}
+	body := &ast.Block{}
+	if !p.atEnd() && !p.cur().Is(";") {
+		s, err := p.stmt()
+		if err != nil {
+			return nil, err
+		}
+		if b, ok := s.(*ast.Block); ok {
+			body = b
+		} else if s != nil {
+			body.Stmts = append(body.Stmts, s)
+		}
+	}
+	return &ast.FnDecl{Public: pub, Object: obj, Name: name, Args: args, Body: body, EmitPrejump: true}, nil
+}
+
+func (p *Parser) ifStmt() (ast.Stmt, error) {
+	p.expect("(")
+	c, err := p.expr(0)
+	if err != nil {
+		return nil, err
+	}
+	p.expect(")")
+	then, err := p.stmt()
+	if err != nil {
+		return nil, err
+	}
+	var els ast.Stmt
+	if p.match("else") {
+		els, err = p.stmt()
+	} else if p.match("elseif") {
+		els, err = p.ifStmt()
+	}
+	return &ast.If{Cond: c, Then: then, Else: els}, err
+}
+
+func (p *Parser) forStmt() (ast.Stmt, error) {
+	p.expect("(")
+	first, _ := p.expr(0)
+	if p.match(":") {
+		r, err := p.expr(0)
+		if err != nil {
+			return nil, err
+		}
+		p.expect(")")
+		body, err := p.stmt()
+		return &ast.ForEach{Name: first, Range: r, Body: body}, err
+	}
+	p.expect(";")
+	cond, err := p.expr(0)
+	if err != nil {
+		return nil, err
+	}
+	p.expect(";")
+	post, err := p.expr(0)
+	if err != nil {
+		return nil, err
+	}
+	p.expect(")")
+	body, err := p.stmt()
+	return &ast.For{Init: first, Cond: cond, Post: post, Body: body}, err
+}
+
+func (p *Parser) switchStmt() (ast.Stmt, error) {
+	p.expect("(")
+	target, err := p.expr(0)
+	if err != nil {
+		return nil, err
+	}
+	p.expect(")")
+	p.expect("{")
+	sw := &ast.Switch{Target: target}
+	for !p.match("}") {
+		c := ast.SwitchCase{Body: &ast.Block{}}
+		if p.match("case") {
+			e, err := p.expr(0)
+			if err != nil {
+				return nil, err
+			}
+			c.Exprs = append(c.Exprs, e)
+			p.expect(":")
+		} else if p.match("default") {
+			p.expect(":")
+		} else {
+			return nil, p.err("expected case/default")
+		}
+		for !p.cur().Is("case") && !p.cur().Is("default") && !p.cur().Is("}") {
+			s, err := p.stmt()
+			if err != nil {
+				return nil, err
+			}
+			if s != nil {
+				c.Body.Stmts = append(c.Body.Stmts, s)
+			}
+		}
+		sw.Cases = append(sw.Cases, c)
+	}
+	return sw, nil
+}
+
+var prec = map[string]int{
+	"=": 1, "+=": 1, "-=": 1, "*=": 1, "/=": 1, "^=": 1, "%=": 1, "@=": 1, "<<=": 1, ">>=": 1,
+	"?": 2, "||": 3, "&&": 4, "&": 5, "|": 5, "xor": 5, "<<": 5, ">>": 5, "@": 6,
+	"<": 7, "<=": 7, ">": 7, ">=": 7, "==": 8, "!=": 8, "in": 8,
+	"+": 9, "-": 9, "*": 10, "/": 10, "^": 10, "%": 10, ".": 12,
+}
+
+func (p *Parser) expr(min int) (ast.Expr, error) {
+	left, err := p.prefix()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		op := p.cur().Lit
+		if op == "[" {
+			p.next()
+			args, err := p.exprList("]")
+			if err != nil {
+				return nil, err
+			}
+			left = appendPostfix(left, &ast.ArrayIndex{Exprs: args})
+			continue
+		}
+		if op == "(" {
+			p.next()
+			args, err := p.exprList(")")
+			if err != nil {
+				return nil, err
+			}
+			if pf, ok := left.(*ast.Postfix); ok && len(pf.Nodes) > 0 {
+				fn := pf.Nodes[len(pf.Nodes)-1]
+				objNodes := append([]ast.Expr{}, pf.Nodes[:len(pf.Nodes)-1]...)
+				var obj ast.Expr
+				if len(objNodes) == 1 {
+					obj = objNodes[0]
+				} else if len(objNodes) > 1 {
+					obj = &ast.Postfix{Nodes: objNodes}
+				}
+				left = &ast.FnCall{Func: fn, Object: obj, Args: args}
+			} else {
+				left = &ast.FnCall{Func: left, Args: args}
+			}
+			continue
+		}
+		if op == "++" || op == "--" {
+			p.next()
+			left = &ast.Unary{Op: op, Value: left, Prefix: false}
+			continue
+		}
+		pv, ok := prec[op]
+		if !ok || pv < min {
+			break
+		}
+		p.next()
+		if op == "?" {
+			mid, err := p.expr(0)
+			if err != nil {
+				return nil, err
+			}
+			p.expect(":")
+			right, err := p.expr(pv)
+			if err != nil {
+				return nil, err
+			}
+			left = &ast.Ternary{Cond: left, Left: mid, Right: right}
+			continue
+		}
+		if op == "in" {
+			lo, err := p.expr(pv + 1)
+			if err != nil {
+				return nil, err
+			}
+			var hi ast.Expr
+			if p.match(",") {
+				hi, err = p.expr(pv + 1)
+				if err != nil {
+					return nil, err
+				}
+			}
+			left = &ast.In{Value: left, Lower: lo, Higher: hi}
+			continue
+		}
+		nextMin := pv + 1
+		if isAssign(op) {
+			nextMin = pv
+			left.SetAssign(true)
+		}
+		right, err := p.expr(nextMin)
+		if err != nil {
+			return nil, err
+		}
+		b := &ast.Binary{Left: left, Right: right, Op: op}
+		if isAssign(op) {
+			b.SetAssign(true)
+		}
+		left = b
+	}
+	return left, nil
+}
+
+func (p *Parser) prefix() (ast.Expr, error) {
+	t := p.next()
+	switch t.Kind {
+	case lexer.Int:
+		v, _ := strconv.Atoi(t.Lit)
+		return &ast.IntLit{Value: v}, nil
+	case lexer.Float:
+		return &ast.FloatLit{Value: t.Lit}, nil
+	case lexer.String:
+		return &ast.StringLit{Value: t.Lit}, nil
+	case lexer.Ident:
+		if v, ok := p.consts[t.Lit]; ok {
+			return v, nil
+		}
+		return &ast.Identifier{Name: t.Lit, CheckReserved: true}, nil
+	}
+	switch t.Lit {
+	case "(":
+		e, err := p.expr(0)
+		p.expect(")")
+		return e, err
+	case "{":
+		args, err := p.exprList("}")
+		return &ast.List{Args: args}, err
+	case "-", "!", "~", "++", "--", "@":
+		e, err := p.expr(11)
+		return &ast.Unary{Op: t.Lit, Value: e, Prefix: true}, err
+	case "@\n", "@ ", "@\t":
+		e, err := p.expr(11)
+		return &ast.Unary{Op: "@", Value: e, Prefix: true}, err
+	case "int":
+		p.expect("(")
+		e, err := p.expr(0)
+		p.expect(")")
+		return &ast.Cast{Kind: ast.Integer, Value: e}, err
+	case "float":
+		p.expect("(")
+		e, err := p.expr(0)
+		p.expect(")")
+		return &ast.Cast{Kind: ast.Number, Value: e}, err
+	case "_":
+		p.expect("(")
+		e, err := p.expr(0)
+		p.expect(")")
+		return &ast.Cast{Kind: ast.String, Value: e}, err
+	case "new":
+		if p.match("[") {
+			var dims []int
+			for {
+				v := p.expectKind(lexer.Int)
+				n, _ := strconv.Atoi(v.Lit)
+				dims = append(dims, n)
+				p.expect("]")
+				if !p.match("[") {
+					break
+				}
+			}
+			return &ast.NewArray{Dims: dims}, nil
+		}
+		class, err := p.prefix()
+		if err != nil {
+			return nil, err
+		}
+		p.expect("(")
+		args, err := p.exprList(")")
+		return &ast.NewObject{Class: class, Args: args}, err
+	case "function":
+		p.expect("(")
+		args, err := p.exprList(")")
+		if err != nil {
+			return nil, err
+		}
+		bodyStmt, err := p.stmt()
+		if err != nil {
+			return nil, err
+		}
+		body, _ := bodyStmt.(*ast.Block)
+		if body == nil {
+			body = &ast.Block{Stmts: []ast.Stmt{bodyStmt}}
+		}
+		p.lamb++
+		return &ast.FnObject{Name: fmt.Sprintf("__lambda_%d", p.lamb), Args: args, Body: body}, nil
+	}
+	return nil, p.err("expected expression")
+}
+
+func appendPostfix(base ast.Expr, e ast.Expr) ast.Expr {
+	if pf, ok := base.(*ast.Postfix); ok {
+		pf.Nodes = append(pf.Nodes, e)
+		return pf
+	}
+	if id, ok := e.(*ast.Identifier); ok {
+		id.CheckReserved = false
+	}
+	return &ast.Postfix{Nodes: []ast.Expr{base, e}}
+}
+func (p *Parser) exprList(end string) ([]ast.Expr, error) {
+	var args []ast.Expr
+	if p.match(end) {
+		return args, nil
+	}
+	for {
+		e, err := p.expr(0)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, e)
+		if p.match(end) {
+			return args, nil
+		}
+		p.expect(",")
+		if p.match(end) {
+			return args, nil
+		}
+	}
+}
+func isAssign(op string) bool {
+	switch op {
+	case "=", "+=", "-=", "*=", "/=", "^=", "%=", "@=", "<<=", ">>=":
+		return true
+	}
+	return false
+}
+func (p *Parser) cur() lexer.Token {
+	if p.pos >= len(p.toks) {
+		return p.toks[len(p.toks)-1]
+	}
+	return p.toks[p.pos]
+}
+func (p *Parser) next() lexer.Token {
+	t := p.cur()
+	if p.pos < len(p.toks) {
+		p.pos++
+	}
+	return t
+}
+func (p *Parser) match(s string) bool {
+	if p.cur().Lit == s {
+		p.next()
+		return true
+	}
+	return false
+}
+func (p *Parser) expect(s string) lexer.Token {
+	if p.cur().Lit != s {
+		panic(p.err("expected " + s))
+	}
+	return p.next()
+}
+func (p *Parser) expectKind(k lexer.Kind) lexer.Token {
+	if p.cur().Kind != k {
+		panic(p.err("unexpected token"))
+	}
+	return p.next()
+}
+func (p *Parser) atEnd() bool { return p.cur().Kind == lexer.EOF }
+func (p *Parser) err(s string) error {
+	t := p.cur()
+	return fmt.Errorf("%s at %d:%d near %q", s, t.Line, t.Col, t.Lit)
+}
