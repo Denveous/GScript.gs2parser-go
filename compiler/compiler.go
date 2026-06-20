@@ -862,9 +862,6 @@ func (c *Compiler) ident(n *ast.Identifier) {
 		case "temp":
 			c.bc.Op(opcode.Temp)
 			return
-		case "params":
-			c.bc.Op(opcode.Params)
-			return
 		case "true":
 			c.bc.Op(opcode.TypeTrue)
 			return
