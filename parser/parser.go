@@ -385,15 +385,32 @@ func (p *Parser) expr(min int) (ast.Expr, error) {
 			continue
 		}
 		if op == "in" {
-			lo, err := p.expr(pv + 1)
-			if err != nil {
-				return nil, err
-			}
-			var hi ast.Expr
-			if p.match(",") {
-				hi, err = p.expr(pv + 1)
+			var lo, hi ast.Expr
+			if p.match("|") || p.match("<") {
+				close := "|"
+				if p.toks[p.pos-1].Lit == "<" {
+					close = ">"
+				}
+				lo, err = p.expr(0)
 				if err != nil {
 					return nil, err
+				}
+				p.expect(",")
+				hi, err = p.expr(0)
+				if err != nil {
+					return nil, err
+				}
+				p.expect(close)
+			} else {
+				lo, err = p.expr(pv + 1)
+				if err != nil {
+					return nil, err
+				}
+				if p.match(",") {
+					hi, err = p.expr(pv + 1)
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
 			left = &ast.In{Value: left, Lower: lo, Higher: hi}
