@@ -621,7 +621,9 @@ func (c *Compiler) logical(n *ast.Binary) error {
 	c.Expr(n.Left)
 	c.logicalParent = parent
 	c.bc.Convert(string(n.Left.Type()), string(ast.Number))
-	if n.Op == "&&" {
+	if n.Op == "&&" && !c.inline {
+		c.bc.Op(opcode.If)
+	} else if n.Op == "&&" {
 		c.bc.Op(opcode.And)
 	} else {
 		c.bc.Op(opcode.Or)
