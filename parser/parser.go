@@ -402,7 +402,7 @@ func (p *Parser) expr(min int) (ast.Expr, error) {
 				return nil, err
 			}
 			p.expect(":")
-			right, err := p.expr(pv)
+			right, err := p.expr(pv + 1)
 			if err != nil {
 				return nil, err
 			}
