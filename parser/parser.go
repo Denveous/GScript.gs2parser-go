@@ -234,11 +234,14 @@ func postfixStmtKeepsValue(e ast.Expr) bool {
 		return false
 	}
 	id, ok := p.Nodes[0].(*ast.Identifier)
-	if !ok || id.Name != "client" {
+	if !ok {
 		return false
 	}
 	member, ok := p.Nodes[1].(*ast.Identifier)
-	return ok && member.Name == "speed2"
+	if !ok {
+		return false
+	}
+	return (id.Name == "client" && member.Name == "speed2") || (id.Name == "this" && member.Name == "pcount")
 }
 
 func (p *Parser) forStmt() (ast.Stmt, error) {
