@@ -479,6 +479,10 @@ func (c *Compiler) binary(n *ast.Binary) error {
 	if n.Op == "@" {
 		c.Expr(n.Left)
 		c.bc.Convert(string(n.Left.Type()), string(ast.String))
+		if n.Sep != 0 {
+			c.str(string([]byte{n.Sep}), opcode.TypeString)
+			c.bc.Op(opcode.Join)
+		}
 		c.Expr(n.Right)
 		c.bc.Convert(string(n.Right.Type()), string(ast.String))
 		c.bc.Op(opcode.Join)

@@ -364,6 +364,9 @@ func (p *Parser) expr(min int) (ast.Expr, error) {
 			continue
 		}
 		pv, ok := prec[op]
+		if !ok && len(op) == 2 && op[0] == '@' && op != "@=" {
+			pv, ok = prec["@"]
+		}
 		if !ok || pv < min {
 			break
 		}
@@ -405,7 +408,12 @@ func (p *Parser) expr(min int) (ast.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		b := &ast.Binary{Left: left, Right: right, Op: op}
+		sep := byte(0)
+		if len(op) == 2 && op[0] == '@' && op != "@=" {
+			sep = op[1]
+			op = "@"
+		}
+		b := &ast.Binary{Left: left, Right: right, Op: op, Sep: sep}
 		if isAssign(op) {
 			b.SetAssign(true)
 		}

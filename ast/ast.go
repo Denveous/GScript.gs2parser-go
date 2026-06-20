@@ -245,6 +245,7 @@ type Binary struct {
 	BaseExpr
 	Left, Right Expr
 	Op          string
+	Sep         byte
 }
 
 func (n *Binary) Type() Type {
