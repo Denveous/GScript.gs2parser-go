@@ -639,7 +639,11 @@ func (c *Compiler) logical(n *ast.Binary) error {
 	if !first && n.Op == "&&" && parent == "||" {
 		target++
 	}
-	c.bc.Short(int16(target), loc)
+	if n.Op == "&&" && !c.inline {
+		c.at(c.fail, loc)
+	} else {
+		c.bc.Short(int16(target), loc)
+	}
 	if first && c.inline {
 		c.bc.Op(opcode.InlineConditional)
 	}
