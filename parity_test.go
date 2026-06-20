@@ -48,6 +48,7 @@ func TestCPPParityBaselines(t *testing.T) {
 			"classes/01_objects",
 			"classes/02_arrays",
 			"advanced/g2k1/weaponTestGS2",
+			"advanced/loginserver/weapon-Staff_GraalShop",
 		}
 	}
 	for _, name := range cases {

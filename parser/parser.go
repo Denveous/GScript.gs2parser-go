@@ -42,7 +42,7 @@ func (p *Parser) program() (*ast.Block, error) {
 			return nil, err
 		}
 		if s != nil {
-			b.Stmts = append(b.Stmts, s)
+			appendBlockStmt(b, s)
 		}
 	}
 	return b, nil
@@ -97,7 +97,7 @@ func (p *Parser) stmt() (ast.Stmt, error) {
 				return nil, err
 			}
 			if s != nil {
-				b.Stmts = append(b.Stmts, s)
+				appendBlockStmt(b, s)
 			}
 		}
 		return b, nil
@@ -171,12 +171,6 @@ func (p *Parser) stmt() (ast.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	if u, ok := e.(*ast.Unary); ok && (u.Op == "++" || u.Op == "--") {
-		if !postfixStmtKeepsValue(u.Value) {
-			u.Prefix = true
-		}
-		u.Unused = true
-	}
 	p.expect(";")
 	return e, nil
 }
@@ -202,7 +196,7 @@ func (p *Parser) fnDecl(pub bool) (ast.Stmt, error) {
 		if b, ok := s.(*ast.Block); ok {
 			body = b
 		} else if s != nil {
-			body.Stmts = append(body.Stmts, s)
+			appendBlockStmt(body, s)
 		}
 	}
 	return &ast.FnDecl{Public: pub, Object: obj, Name: name, Args: args, Body: body, EmitPrejump: true}, nil
@@ -226,6 +220,16 @@ func (p *Parser) ifStmt() (ast.Stmt, error) {
 		els, err = p.ifStmt()
 	}
 	return &ast.If{Cond: c, Then: then, Else: els}, err
+}
+
+func appendBlockStmt(b *ast.Block, s ast.Stmt) {
+	if u, ok := s.(*ast.Unary); ok && (u.Op == "++" || u.Op == "--") {
+		if !postfixStmtKeepsValue(u.Value) {
+			u.Prefix = true
+		}
+		u.Unused = true
+	}
+	b.Stmts = append(b.Stmts, s)
 }
 
 func postfixStmtKeepsValue(e ast.Expr) bool {
@@ -319,7 +323,7 @@ func (p *Parser) switchStmt() (ast.Stmt, error) {
 				return nil, err
 			}
 			if s != nil {
-				c.Body.Stmts = append(c.Body.Stmts, s)
+				appendBlockStmt(c.Body, s)
 			}
 		}
 		sw.Cases = append(sw.Cases, c)
@@ -503,10 +507,14 @@ func (p *Parser) prefix() (ast.Expr, error) {
 		e, err := p.expr(10)
 		return &ast.Unary{Op: t.Lit, Value: e, Prefix: true}, err
 	case "!", "~", "++", "--", "@":
-		e, err := p.expr(11)
+		min := 11
+		if t.Lit == "@" {
+			min = prec["@"] + 1
+		}
+		e, err := p.expr(min)
 		return &ast.Unary{Op: t.Lit, Value: e, Prefix: true}, err
 	case "@\n", "@ ", "@\t":
-		e, err := p.expr(11)
+		e, err := p.expr(prec["@"] + 1)
 		return &ast.Unary{Op: "@", Value: e, Prefix: true}, err
 	case "int":
 		p.expect("(")
