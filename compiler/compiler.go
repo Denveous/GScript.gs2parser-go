@@ -674,6 +674,8 @@ func (c *Compiler) call(n *ast.FnCall) error {
 		if isObj {
 			cmd.convert = opcode.ConvToObject
 		}
+	} else if cmd.flags == 0 && defaultReturnBuiltin(n.Func.Text(), isObj) {
+		cmd.flags = cmdReverseArgs | cmdReturn
 	}
 	emitObj := func() {
 		if isObj {
@@ -722,6 +724,13 @@ func (c *Compiler) call(n *ast.FnCall) error {
 		c.Joins[n.Args[0].Text()] = true
 	}
 	return nil
+}
+
+func defaultReturnBuiltin(name string, isObj bool) bool {
+	if !isObj {
+		return name != "sleep" && name != "setarray"
+	}
+	return name != "clear"
 }
 
 func (c *Compiler) sigConvert(e ast.Expr, sig string, i int) {
