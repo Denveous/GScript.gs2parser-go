@@ -823,8 +823,8 @@ func dynamicMemberAdd(e ast.Expr) bool {
 		if len(n.Nodes) == 0 {
 			return false
 		}
-		_, call := n.Nodes[len(n.Nodes)-1].(*ast.FnCall)
-		return !call
+		_, ident := n.Nodes[len(n.Nodes)-1].(*ast.Identifier)
+		return ident
 	default:
 		return false
 	}
