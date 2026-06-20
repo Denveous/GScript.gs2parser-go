@@ -787,8 +787,21 @@ func (c *Compiler) logical(n *ast.Binary) error {
 
 func (c *Compiler) postfix(n *ast.Postfix) error {
 	for i, node := range n.Nodes {
-		if err := c.Expr(node); err != nil {
-			return err
+		dynamic := false
+		if i > 0 {
+			if u, ok := node.(*ast.Unary); ok && u.Op == "@" {
+				if err := c.Expr(u.Value); err != nil {
+					return err
+				}
+				c.bc.Convert(string(u.Value.Type()), string(ast.Number))
+				c.bc.Op(opcode.Add)
+				dynamic = true
+			}
+		}
+		if !dynamic {
+			if err := c.Expr(node); err != nil {
+				return err
+			}
 		}
 		if i > 0 && node.Type() != ast.Array && node.Type() != ast.MultiArray {
 			c.bc.Op(opcode.MemberAccess)
