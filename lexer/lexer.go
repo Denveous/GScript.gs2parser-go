@@ -153,6 +153,9 @@ func (l *Lexer) string(quote rune, line, col int) Token {
 			}
 			continue
 		}
+		if r == '\r' && l.pos < len(l.src) && l.peek() == '\n' {
+			continue
+		}
 		b.WriteRune(r)
 	}
 	if l.pos < len(l.src) {
