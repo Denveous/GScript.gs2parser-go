@@ -478,7 +478,10 @@ func (p *Parser) prefix() (ast.Expr, error) {
 	case "{":
 		args, err := p.exprList("}")
 		return &ast.List{Args: args}, err
-	case "-", "!", "~", "++", "--", "@":
+	case "-":
+		e, err := p.expr(10)
+		return &ast.Unary{Op: t.Lit, Value: e, Prefix: true}, err
+	case "!", "~", "++", "--", "@":
 		e, err := p.expr(11)
 		return &ast.Unary{Op: t.Lit, Value: e, Prefix: true}, err
 	case "@\n", "@ ", "@\t":
