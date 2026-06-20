@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"gs2parser/ast"
 	"gs2parser/bytecode"
@@ -20,6 +21,7 @@ type Compiler struct {
 	directBlock                    bool
 	logicalParent                  string
 	lastCallReturn                 bool
+	negFloats                      map[string]int
 	Joins                          map[string]bool
 }
 
@@ -34,7 +36,7 @@ func Compile(root *ast.Block) ([]byte, error) {
 }
 
 func New() *Compiler {
-	c := &Compiler{bc: bytecode.New(), locs: map[uint32][]int{}, addrs: map[uint32]uint32{}, inline: true, Joins: map[string]bool{}}
+	c := &Compiler{bc: bytecode.New(), locs: map[uint32][]int{}, addrs: map[uint32]uint32{}, inline: true, negFloats: map[string]int{}, Joins: map[string]bool{}}
 	c.exit = c.label()
 	c.success = c.exit
 	c.fail = c.exit
@@ -565,7 +567,8 @@ func (c *Compiler) unary(n *ast.Unary) error {
 		}
 		if lit, ok := n.Value.(*ast.FloatLit); ok {
 			c.bc.Op(opcode.TypeNumber)
-			c.bc.DoubleNumber("-" + lit.Value)
+			c.negFloats[lit.Value]++
+			c.bc.DoubleNumber(strings.Repeat("-", c.negFloats[lit.Value]) + lit.Value)
 			return nil
 		}
 	}
