@@ -1,6 +1,6 @@
 # gs2parser
 
-This is a Go compiler for the Graal Script 2 (GS2) language.
+This is a Go compiler for the GS2 language.
 
 It is a Go port of the C++ `gs2-parser` project, structured so the compiler can be used as its own command-line tool or imported as a module by another Go project.
 
