@@ -418,7 +418,7 @@ func (c *Compiler) Expr(e ast.Expr) error {
 		c.num(int32(n.Value))
 	case *ast.FloatLit:
 		c.bc.Op(opcode.TypeNumber)
-		c.bc.DoubleNumber(n.Value)
+		c.bc.DoubleNumber(strings.Repeat("-", c.negFloats[n.Value]) + n.Value)
 	case *ast.StringLit:
 		c.str(n.Value, opcode.TypeString)
 	case *ast.Identifier:
