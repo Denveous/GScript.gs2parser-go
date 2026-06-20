@@ -15,6 +15,7 @@ type Compiler struct {
 	addrs                          map[uint32]uint32
 	success, fail, exit, brk, cont uint32
 	inside, inline                 bool
+	inlineLogical                  bool
 	copyAssign                     bool
 	logicalParent                  string
 	lastCallReturn                 bool
@@ -554,12 +555,23 @@ func (c *Compiler) unary(n *ast.Unary) error {
 		}
 	}
 	first := !c.inside
+	inline, inlineLogical := c.inline, c.inlineLogical
+	os, of := c.success, c.fail
+	var label uint32
 	if first {
 		c.inside = true
+		c.inline = true
+		c.inlineLogical = true
+		label = c.label()
+		c.success, c.fail = label, label
 	}
 	c.Expr(n.Value)
 	if first {
 		c.inside = false
+		c.inline = inline
+		c.inlineLogical = inlineLogical
+		c.success, c.fail = os, of
+		c.set(label, c.bc.OpIndex())
 	}
 	switch n.Op {
 	case "++":
@@ -613,8 +625,16 @@ func (c *Compiler) ternary(n *ast.Ternary) error {
 
 func (c *Compiler) logical(n *ast.Binary) error {
 	first := !c.inside
+	inlineLogical := c.inlineLogical
+	os, of := c.success, c.fail
+	var label uint32
 	if first {
 		c.inside = true
+		if c.inline {
+			c.inlineLogical = true
+			label = c.label()
+			c.success, c.fail = label, label
+		}
 	}
 	parent := c.logicalParent
 	c.logicalParent = n.Op
@@ -639,16 +659,23 @@ func (c *Compiler) logical(n *ast.Binary) error {
 	if !first && n.Op == "&&" && parent == "||" {
 		target++
 	}
-	if n.Op == "&&" && !c.inline {
+	if n.Op == "&&" && (!c.inline || (c.inlineLogical && parent != "||")) {
 		c.at(c.fail, loc)
+	} else if n.Op == "||" && (!c.inline || c.inlineLogical) {
+		c.at(c.success, loc)
 	} else {
 		c.bc.Short(int16(target), loc)
 	}
 	if first && c.inline {
+		if label != 0 {
+			c.set(label, c.bc.OpIndex())
+		}
 		c.bc.Op(opcode.InlineConditional)
 	}
 	if first {
 		c.inside = false
+		c.inlineLogical = inlineLogical
+		c.success, c.fail = os, of
 	}
 	return nil
 }
