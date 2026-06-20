@@ -207,6 +207,7 @@ func (c *Compiler) ifStmt(n *ast.If) error {
 
 func (c *Compiler) whileStmt(n *ast.While) error {
 	os, of, ob, oc := c.success, c.fail, c.brk, c.cont
+	direct := c.directBlock
 	c.brk, c.cont = c.label(), c.label()
 	c.set(c.cont, c.bc.OpIndex())
 	c.inline = false
@@ -220,9 +221,12 @@ func (c *Compiler) whileStmt(n *ast.While) error {
 	c.bc.Short(0)
 	c.at(c.brk, c.bc.Pos()-2)
 	c.bc.Op(opcode.CmdCall)
+	c.directBlock = false
 	if err := c.Stmt(n.Body); err != nil {
+		c.directBlock = direct
 		return err
 	}
+	c.directBlock = direct
 	c.bc.Op(opcode.SetIndex)
 	c.bc.Byte(0xF4)
 	c.bc.Short(0)
@@ -233,6 +237,7 @@ func (c *Compiler) whileStmt(n *ast.While) error {
 }
 
 func (c *Compiler) forStmt(n *ast.For) error {
+	direct := c.directBlock
 	if n.Init != nil {
 		if err := c.Expr(n.Init); err != nil {
 			return err
@@ -254,9 +259,12 @@ func (c *Compiler) forStmt(n *ast.For) error {
 	c.bc.Short(0)
 	c.at(c.brk, c.bc.Pos()-2)
 	c.bc.Op(opcode.CmdCall)
+	c.directBlock = false
 	if err := c.Stmt(n.Body); err != nil {
+		c.directBlock = direct
 		return err
 	}
+	c.directBlock = direct
 	c.set(c.cont, c.bc.OpIndex())
 	if n.Post != nil {
 		if err := c.Expr(n.Post); err != nil {
@@ -271,6 +279,7 @@ func (c *Compiler) forStmt(n *ast.For) error {
 }
 
 func (c *Compiler) foreachStmt(n *ast.ForEach) error {
+	direct := c.directBlock
 	c.Expr(n.Name)
 	c.Expr(n.Range)
 	c.bc.Op(opcode.ConvToObject)
@@ -283,9 +292,12 @@ func (c *Compiler) foreachStmt(n *ast.ForEach) error {
 	c.bc.Short(0)
 	c.at(c.brk, c.bc.Pos()-2)
 	c.bc.Op(opcode.CmdCall)
+	c.directBlock = false
 	if err := c.Stmt(n.Body); err != nil {
+		c.directBlock = direct
 		return err
 	}
+	c.directBlock = direct
 	c.set(c.cont, c.bc.OpIndex())
 	c.bc.Op(opcode.Inc)
 	c.bc.Op(opcode.SetIndex)
@@ -668,6 +680,40 @@ func (c *Compiler) logical(n *ast.Binary) error {
 		c.at(c.success, c.bc.Pos()-2)
 		c.set(nextFail, c.bc.OpIndex())
 		c.success, c.fail = os, of
+		c.logicalParent = n.Op
+		c.Expr(n.Right)
+		c.logicalParent = parent
+		c.bc.Convert(string(n.Right.Type()), string(ast.Number))
+		if first && c.inline {
+			if label != 0 {
+				c.set(label, c.bc.OpIndex())
+			}
+			c.bc.Op(opcode.InlineConditional)
+		}
+		if first {
+			c.inside = false
+			c.inlineLogical = inlineLogical
+			c.success, c.fail = os, of
+		}
+		return nil
+	}
+	if n.Op == "&&" && (!c.inline || inlineLogical || !first) {
+		nextSuccess := c.label()
+		c.success = nextSuccess
+		c.logicalParent = n.Op
+		c.Expr(n.Left)
+		c.logicalParent = parent
+		c.bc.Convert(string(n.Left.Type()), string(ast.Number))
+		c.set(nextSuccess, c.bc.OpIndex())
+		c.success, c.fail = os, of
+		if c.inline {
+			c.bc.Op(opcode.And)
+		} else {
+			c.bc.Op(opcode.If)
+		}
+		c.bc.Byte(0xF4)
+		c.bc.Short(0)
+		c.at(c.fail, c.bc.Pos()-2)
 		c.logicalParent = n.Op
 		c.Expr(n.Right)
 		c.logicalParent = parent
