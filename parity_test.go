@@ -8,17 +8,21 @@ import (
 )
 
 func TestCPPParityBaselines(t *testing.T) {
-	base := os.Getenv("GS2_CPP_REPO")
+	base := os.Getenv("GS2_TESTS_DIR")
 	if base == "" {
-		base = `G:\Development\Graal\gs2-parser`
+		if cpp := os.Getenv("GS2_CPP_REPO"); cpp != "" {
+			base = filepath.Join(cpp, "tests")
+		} else {
+			base = "tests"
+		}
 	}
 	var cases []string
 	if os.Getenv("GS2_ALL_BASELINES") == "1" {
-		err := filepath.WalkDir(filepath.Join(base, "tests", "baselines"), func(path string, d os.DirEntry, err error) error {
+		err := filepath.WalkDir(filepath.Join(base, "baselines"), func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() || filepath.Ext(path) != ".bytecode" {
 				return err
 			}
-			rel, err := filepath.Rel(filepath.Join(base, "tests", "baselines"), path)
+			rel, err := filepath.Rel(filepath.Join(base, "baselines"), path)
 			if err != nil {
 				return err
 			}
@@ -53,11 +57,11 @@ func TestCPPParityBaselines(t *testing.T) {
 	}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
-			src, err := os.ReadFile(filepath.Join(base, "tests", "scripts", name+".gs2"))
+			src, err := os.ReadFile(filepath.Join(base, "scripts", name+".gs2"))
 			if err != nil {
 				t.Skip(err)
 			}
-			want, err := os.ReadFile(filepath.Join(base, "tests", "baselines", name+".bytecode"))
+			want, err := os.ReadFile(filepath.Join(base, "baselines", name+".bytecode"))
 			if err != nil {
 				t.Skip(err)
 			}
