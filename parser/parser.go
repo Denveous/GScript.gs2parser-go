@@ -56,6 +56,9 @@ func (p *Parser) decl() (ast.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		if lit, ok := v.(*ast.IntLit); ok {
+			v = &ast.ConstLit{Value: strconv.Itoa(lit.Value)}
+		}
 		p.consts[name.Lit] = v
 		p.expect(";")
 		return nil, nil
@@ -73,7 +76,7 @@ func (p *Parser) decl() (ast.Stmt, error) {
 				v := p.expectKind(lexer.Int)
 				idx, _ = strconv.Atoi(v.Lit)
 			}
-			p.consts[prefix+name] = &ast.IntLit{Value: idx}
+			p.consts[prefix+name] = &ast.ConstLit{Value: strconv.Itoa(idx)}
 			idx++
 			p.match(",")
 		}

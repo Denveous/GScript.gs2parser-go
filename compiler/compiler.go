@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gs2parser/ast"
@@ -416,6 +417,9 @@ func (c *Compiler) Expr(e ast.Expr) error {
 	switch n := e.(type) {
 	case *ast.IntLit:
 		c.num(int32(n.Value))
+	case *ast.ConstLit:
+		v, _ := strconv.Atoi(n.Value)
+		c.num(int32(v))
 	case *ast.FloatLit:
 		c.bc.Op(opcode.TypeNumber)
 		c.bc.DoubleNumber(strings.Repeat("-", c.negFloats[n.Value]) + n.Value)

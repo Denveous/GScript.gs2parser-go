@@ -158,7 +158,7 @@ type ConstLit struct {
 	Value string
 }
 
-func (n *ConstLit) Type() Type   { return Integer }
+func (n *ConstLit) Type() Type   { return Ident }
 func (n *ConstLit) Text() string { return n.Value }
 
 type Identifier struct {
