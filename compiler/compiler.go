@@ -638,8 +638,10 @@ func (c *Compiler) logical(n *ast.Binary) error {
 		target++
 	}
 	c.bc.Short(int16(target), loc)
-	if first {
+	if first && c.inline {
 		c.bc.Op(opcode.InlineConditional)
+	}
+	if first {
 		c.inside = false
 	}
 	return nil
