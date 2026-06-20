@@ -790,12 +790,14 @@ func (c *Compiler) postfix(n *ast.Postfix) error {
 		dynamic := false
 		if i > 0 {
 			if u, ok := node.(*ast.Unary); ok && u.Op == "@" {
-				if err := c.Expr(u.Value); err != nil {
-					return err
+				if dynamicMemberAdd(u.Value) {
+					if err := c.Expr(u.Value); err != nil {
+						return err
+					}
+					c.bc.Convert(string(u.Value.Type()), string(ast.Number))
+					c.bc.Op(opcode.Add)
+					dynamic = true
 				}
-				c.bc.Convert(string(u.Value.Type()), string(ast.Number))
-				c.bc.Op(opcode.Add)
-				dynamic = true
 			}
 		}
 		if !dynamic {
@@ -811,6 +813,21 @@ func (c *Compiler) postfix(n *ast.Postfix) error {
 		}
 	}
 	return nil
+}
+
+func dynamicMemberAdd(e ast.Expr) bool {
+	switch n := e.(type) {
+	case *ast.Identifier:
+		return true
+	case *ast.Postfix:
+		if len(n.Nodes) == 0 {
+			return false
+		}
+		_, call := n.Nodes[len(n.Nodes)-1].(*ast.FnCall)
+		return !call
+	default:
+		return false
+	}
 }
 
 func (c *Compiler) call(n *ast.FnCall) error {
@@ -864,7 +881,17 @@ func (c *Compiler) call(n *ast.FnCall) error {
 		emitObj()
 	}
 	if cmd.op == opcode.Call {
-		c.Expr(n.Func)
+		if isObj {
+			if u, ok := n.Func.(*ast.Unary); ok && u.Op == "@" && dynamicMemberAdd(u.Value) {
+				c.Expr(u.Value)
+				c.bc.Convert(string(u.Value.Type()), string(ast.Number))
+				c.bc.Op(opcode.Add)
+			} else {
+				c.Expr(n.Func)
+			}
+		} else {
+			c.Expr(n.Func)
+		}
 		if isObj {
 			c.bc.Op(opcode.MemberAccess)
 		}
