@@ -43,7 +43,7 @@ func (l *Lexer) next() Token {
 	}
 	ch := l.peek()
 	if isAlpha(ch) {
-		s := l.takeWhile(func(r rune) bool { return isAlphaNum(r) || r == ':' })
+		s := l.ident()
 		if s == "NL" {
 			return Token{Kind: Punct, Lit: "@\n", Line: startLine, Col: startCol}
 		}
@@ -165,6 +165,22 @@ func (l *Lexer) takeWhile(fn func(rune) bool) string {
 	var b strings.Builder
 	for l.pos < len(l.src) && fn(l.peek()) {
 		b.WriteRune(l.advance())
+	}
+	return b.String()
+}
+func (l *Lexer) ident() string {
+	var b strings.Builder
+	for l.pos < len(l.src) {
+		if isAlphaNum(l.peek()) {
+			b.WriteRune(l.advance())
+			continue
+		}
+		if l.has("::") && l.pos+2 < len(l.src) && isAlpha(l.src[l.pos+2]) {
+			b.WriteRune(l.advance())
+			b.WriteRune(l.advance())
+			continue
+		}
+		break
 	}
 	return b.String()
 }

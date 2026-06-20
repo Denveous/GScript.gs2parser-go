@@ -191,6 +191,12 @@ func (n *Postfix) Text() string {
 	}
 	return s
 }
+func (n *Postfix) SetAssign(v bool) {
+	n.Assign = v
+	if len(n.Nodes) > 0 {
+		n.Nodes[len(n.Nodes)-1].SetAssign(v)
+	}
+}
 
 type ArrayIndex struct {
 	BaseExpr

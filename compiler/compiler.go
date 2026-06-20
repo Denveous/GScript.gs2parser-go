@@ -16,6 +16,8 @@ type Compiler struct {
 	success, fail, exit, brk, cont uint32
 	inside, inline                 bool
 	copyAssign                     bool
+	logicalParent                  string
+	lastCallReturn                 bool
 	Joins                          map[string]bool
 }
 
@@ -69,6 +71,8 @@ func (c *Compiler) Stmt(s ast.Stmt) error {
 		return c.forStmt(n)
 	case *ast.ForEach:
 		return c.foreachStmt(n)
+	case *ast.Switch:
+		return c.switchStmt(n)
 	case *ast.With:
 		return c.withStmt(n)
 	case *ast.NewStmt:
@@ -99,7 +103,15 @@ func (c *Compiler) Stmt(s ast.Stmt) error {
 		}
 		c.bc.Op(opcode.Ret)
 	case ast.Expr:
-		return c.Expr(n)
+		c.lastCallReturn = false
+		if err := c.Expr(n); err != nil {
+			return err
+		}
+		_, topCall := n.(*ast.FnCall)
+		if c.lastCallReturn && topCall {
+			c.bc.Op(opcode.IndexDec)
+			c.lastCallReturn = false
+		}
 	default:
 		return fmt.Errorf("unhandled statement %T", s)
 	}
@@ -130,7 +142,9 @@ func (c *Compiler) fn(n *ast.FnDecl) error {
 	}
 	c.bc.Op(opcode.FuncParamsEnd)
 	c.bc.Op(opcode.Jmp)
-	c.bc.Op(opcode.CmdCall)
+	if hasFunctionCall(n.Body) {
+		c.bc.Op(opcode.CmdCall)
+	}
 	if err := c.Stmt(n.Body); err != nil {
 		return err
 	}
@@ -267,6 +281,53 @@ func (c *Compiler) foreachStmt(n *ast.ForEach) error {
 	return nil
 }
 
+func (c *Compiler) switchStmt(n *ast.Switch) error {
+	ob, oc, os, of := c.brk, c.cont, c.success, c.fail
+	c.brk = c.label()
+	var caseLabels []uint32
+	c.bc.Op(opcode.SetIndex)
+	c.bc.Byte(0xF4)
+	c.bc.Short(0)
+	caseTestLoc := c.bc.Pos() - 2
+	for _, cs := range n.Cases {
+		lbl := c.label()
+		c.set(lbl, c.bc.OpIndex())
+		for range cs.Exprs {
+			caseLabels = append(caseLabels, lbl)
+		}
+		c.cont = lbl
+		if err := c.Stmt(cs.Body); err != nil {
+			return err
+		}
+	}
+	c.bc.Short(int16(c.bc.OpIndex()), caseTestLoc)
+	if err := c.Expr(n.Target); err != nil {
+		return err
+	}
+	i := 0
+	for _, cs := range n.Cases {
+		for j := len(cs.Exprs) - 1; j >= 0; j-- {
+			ex := cs.Exprs[j]
+			if ex != nil {
+				c.bc.Op(opcode.CopyLastOps)
+				if err := c.Expr(ex); err != nil {
+					return err
+				}
+				c.bc.Op(opcode.Eq)
+				c.bc.Op(opcode.SetIndexTrue)
+			} else {
+				c.bc.Op(opcode.SetIndex)
+			}
+			c.bc.DynamicNumber(int32(c.addrs[caseLabels[i]]))
+			i++
+		}
+	}
+	c.set(c.brk, c.bc.OpIndex())
+	c.bc.Op(opcode.IndexDec)
+	c.brk, c.cont, c.success, c.fail = ob, oc, os, of
+	return nil
+}
+
 func (c *Compiler) withStmt(n *ast.With) error {
 	if err := c.Expr(n.Target); err != nil {
 		return err
@@ -378,13 +439,15 @@ func (c *Compiler) Expr(e ast.Expr) error {
 			c.bc.Op(opcode.ArrayNewMultidim)
 		}
 	case *ast.NewObject:
+		classID := c.bc.StringID(n.Class.Text())
 		if len(n.Args) == 1 {
 			c.Expr(n.Args[0])
 			c.bc.Op(opcode.InlineNew)
 		} else {
 			c.str("unknown_object", opcode.TypeVar)
 		}
-		c.str(n.Class.Text(), opcode.TypeString)
+		c.bc.Op(opcode.TypeString)
+		c.bc.DynamicUnsigned(uint32(classID))
 		c.bc.Op(opcode.NewObject)
 	case *ast.List:
 		c.bc.Op(opcode.TypeArray)
@@ -413,8 +476,38 @@ func (c *Compiler) binary(n *ast.Binary) error {
 	if n.Op == "&&" || n.Op == "||" {
 		return c.logical(n)
 	}
+	if n.Op == "@" {
+		c.Expr(n.Left)
+		c.bc.Convert(string(n.Left.Type()), string(ast.String))
+		c.Expr(n.Right)
+		c.bc.Convert(string(n.Right.Type()), string(ast.String))
+		c.bc.Op(opcode.Join)
+		return nil
+	}
 	if isAssignOp(n.Op) {
 		c.Expr(n.Left)
+		if n.Op != "=" {
+			c.bc.Op(opcode.CopyLastOps)
+			if n.Op == "@=" {
+				c.bc.Convert(string(n.Left.Type()), string(ast.String))
+				c.Expr(n.Right)
+				c.bc.Convert(string(n.Right.Type()), string(ast.String))
+				c.bc.Op(opcode.Join)
+			} else {
+				c.bc.Convert(string(n.Left.Type()), string(ast.Number))
+				c.Expr(n.Right)
+				c.bc.Convert(string(n.Right.Type()), string(ast.Number))
+				c.bc.Op(opFor(n.Op))
+			}
+			op := opcode.Assign
+			if n.Left.Type() == ast.Array {
+				op = opcode.ArrayAssign
+			} else if n.Left.Type() == ast.MultiArray {
+				op = opcode.ArrayMultidimAssign
+			}
+			c.bc.Op(op)
+			return nil
+		}
 		if c.copyAssign {
 			c.bc.Op(opcode.CopyLastOps)
 			c.copyAssign = false
@@ -422,12 +515,7 @@ func (c *Compiler) binary(n *ast.Binary) error {
 		if n.Right.IsAssign() {
 			c.copyAssign = true
 		}
-		if n.Op != "=" {
-			c.bc.Op(opFor(n.Op))
-			c.Expr(n.Right)
-		} else {
-			c.Expr(n.Right)
-		}
+		c.Expr(n.Right)
 		op := opcode.Assign
 		if n.Left.Type() == ast.Array {
 			op = opcode.ArrayAssign
@@ -461,7 +549,14 @@ func (c *Compiler) unary(n *ast.Unary) error {
 			return nil
 		}
 	}
+	first := !c.inside
+	if first {
+		c.inside = true
+	}
 	c.Expr(n.Value)
+	if first {
+		c.inside = false
+	}
 	switch n.Op {
 	case "++":
 		c.bc.Op(opcode.Inc)
@@ -513,7 +608,14 @@ func (c *Compiler) ternary(n *ast.Ternary) error {
 }
 
 func (c *Compiler) logical(n *ast.Binary) error {
+	first := !c.inside
+	if first {
+		c.inside = true
+	}
+	parent := c.logicalParent
+	c.logicalParent = n.Op
 	c.Expr(n.Left)
+	c.logicalParent = parent
 	c.bc.Convert(string(n.Left.Type()), string(ast.Number))
 	if n.Op == "&&" {
 		c.bc.Op(opcode.And)
@@ -522,9 +624,20 @@ func (c *Compiler) logical(n *ast.Binary) error {
 	}
 	c.bc.Byte(0xF4)
 	c.bc.Short(0)
+	loc := c.bc.Pos() - 2
+	c.logicalParent = n.Op
 	c.Expr(n.Right)
+	c.logicalParent = parent
 	c.bc.Convert(string(n.Right.Type()), string(ast.Number))
-	c.bc.Op(opcode.InlineConditional)
+	target := c.bc.OpIndex()
+	if !first && n.Op == "&&" && parent == "||" {
+		target++
+	}
+	c.bc.Short(int16(target), loc)
+	if first {
+		c.bc.Op(opcode.InlineConditional)
+		c.inside = false
+	}
 	return nil
 }
 
@@ -533,10 +646,10 @@ func (c *Compiler) postfix(n *ast.Postfix) error {
 		if err := c.Expr(node); err != nil {
 			return err
 		}
-		if i > 0 {
+		if i > 0 && node.Type() != ast.Array && node.Type() != ast.MultiArray {
 			c.bc.Op(opcode.MemberAccess)
 		}
-		if i < len(n.Nodes)-1 && !opcode.ObjectReturning(c.bc.LastOp()) {
+		if i < len(n.Nodes)-1 && node.Type() != ast.Array && node.Type() != ast.MultiArray && !opcode.ObjectReturning(c.bc.LastOp()) {
 			c.bc.Op(opcode.ConvToObject)
 		}
 	}
@@ -551,7 +664,10 @@ func (c *Compiler) call(n *ast.FnCall) error {
 	}
 	cmd, ok := table[n.Func.Text()]
 	if !ok {
-		cmd = builtin{op: opcode.Call, flags: cmdReturn}
+		cmd = builtin{op: opcode.Call, flags: cmdUseArray | cmdReverseArgs | cmdReturn}
+		if isObj {
+			cmd.convert = opcode.ConvToObject
+		}
 	}
 	emitObj := func() {
 		if isObj {
@@ -595,6 +711,7 @@ func (c *Compiler) call(n *ast.FnCall) error {
 		}
 	}
 	c.bc.Op(cmd.op)
+	c.lastCallReturn = cmd.flags&cmdReturn != 0
 	if n.Func.Text() == "join" && len(n.Args) == 1 && n.Args[0].Type() == ast.String {
 		c.Joins[n.Args[0].Text()] = true
 	}
@@ -720,4 +837,89 @@ func opFor(op string) opcode.Opcode {
 		return opcode.Join
 	}
 	return opcode.None
+}
+
+func hasFunctionCall(s ast.Stmt) bool {
+	switch n := s.(type) {
+	case nil:
+		return false
+	case *ast.Block:
+		for _, x := range n.Stmts {
+			if hasFunctionCall(x) {
+				return true
+			}
+		}
+	case *ast.If:
+		return hasFunctionCall(n.Cond) || hasFunctionCall(n.Then) || hasFunctionCall(n.Else)
+	case *ast.While:
+		return hasFunctionCall(n.Cond) || hasFunctionCall(n.Body)
+	case *ast.For:
+		return hasFunctionCall(n.Init) || hasFunctionCall(n.Cond) || hasFunctionCall(n.Post) || hasFunctionCall(n.Body)
+	case *ast.ForEach:
+		return hasFunctionCall(n.Name) || hasFunctionCall(n.Range) || hasFunctionCall(n.Body)
+	case *ast.With:
+		return hasFunctionCall(n.Target) || hasFunctionCall(n.Body)
+	case *ast.NewStmt:
+		for _, a := range n.Args {
+			if hasFunctionCall(a) {
+				return true
+			}
+		}
+		return hasFunctionCall(n.Body)
+	case *ast.Return:
+		return hasFunctionCall(n.Value)
+	case *ast.Switch:
+		if hasFunctionCall(n.Target) {
+			return true
+		}
+		for _, cs := range n.Cases {
+			for _, e := range cs.Exprs {
+				if hasFunctionCall(e) {
+					return true
+				}
+			}
+			if hasFunctionCall(cs.Body) {
+				return true
+			}
+		}
+	case *ast.Binary:
+		return hasFunctionCall(n.Left) || hasFunctionCall(n.Right)
+	case *ast.Unary:
+		return hasFunctionCall(n.Value)
+	case *ast.Ternary:
+		return hasFunctionCall(n.Cond) || hasFunctionCall(n.Left) || hasFunctionCall(n.Right)
+	case *ast.In:
+		return hasFunctionCall(n.Value) || hasFunctionCall(n.Lower) || hasFunctionCall(n.Higher)
+	case *ast.Postfix:
+		for _, x := range n.Nodes {
+			if hasFunctionCall(x) {
+				return true
+			}
+		}
+	case *ast.ArrayIndex:
+		for _, x := range n.Exprs {
+			if hasFunctionCall(x) {
+				return true
+			}
+		}
+	case *ast.Cast:
+		return hasFunctionCall(n.Value)
+	case *ast.FnCall:
+		return true
+	case *ast.NewObject:
+		for _, a := range n.Args {
+			if hasFunctionCall(a) {
+				return true
+			}
+		}
+	case *ast.List:
+		for _, a := range n.Args {
+			if hasFunctionCall(a) {
+				return true
+			}
+		}
+	case *ast.FnObject:
+		return hasFunctionCall(n.Body)
+	}
+	return false
 }

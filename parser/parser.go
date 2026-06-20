@@ -60,8 +60,9 @@ func (p *Parser) decl() (ast.Stmt, error) {
 		return nil, nil
 	}
 	if p.match("enum") {
+		prefix := ""
 		if p.cur().Kind == lexer.Ident {
-			p.next()
+			prefix = p.next().Lit + "::"
 		}
 		p.expect("{")
 		idx := 0
@@ -71,7 +72,7 @@ func (p *Parser) decl() (ast.Stmt, error) {
 				v := p.expectKind(lexer.Int)
 				idx, _ = strconv.Atoi(v.Lit)
 			}
-			p.consts[name] = &ast.IntLit{Value: idx}
+			p.consts[prefix+name] = &ast.IntLit{Value: idx}
 			idx++
 			p.match(",")
 		}
@@ -187,7 +188,7 @@ func (p *Parser) fnDecl(pub bool) (ast.Stmt, error) {
 		return nil, err
 	}
 	body := &ast.Block{}
-	if !p.atEnd() && !p.cur().Is(";") {
+	if !p.atEnd() && !p.cur().Is(";") && !p.cur().Is("function") && !p.cur().Is("public") {
 		s, err := p.stmt()
 		if err != nil {
 			return nil, err
@@ -250,6 +251,10 @@ func (p *Parser) forStmt() (ast.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
+	if u, ok := post.(*ast.Unary); ok && (u.Op == "++" || u.Op == "--") {
+		u.Prefix = true
+		u.Unused = true
+	}
 	p.expect(")")
 	body, err := p.stmt()
 	return &ast.For{Init: first, Cond: cond, Post: post, Body: body}, err
@@ -266,17 +271,25 @@ func (p *Parser) switchStmt() (ast.Stmt, error) {
 	sw := &ast.Switch{Target: target}
 	for !p.match("}") {
 		c := ast.SwitchCase{Body: &ast.Block{}}
-		if p.match("case") {
-			e, err := p.expr(0)
-			if err != nil {
-				return nil, err
+		for {
+			if p.match("case") {
+				e, err := p.expr(0)
+				if err != nil {
+					return nil, err
+				}
+				c.Exprs = append(c.Exprs, e)
+				p.expect(":")
+			} else if p.match("default") {
+				c.Exprs = append(c.Exprs, nil)
+				p.expect(":")
+			} else if len(c.Exprs) == 0 {
+				return nil, p.err("expected case/default")
+			} else {
+				break
 			}
-			c.Exprs = append(c.Exprs, e)
-			p.expect(":")
-		} else if p.match("default") {
-			p.expect(":")
-		} else {
-			return nil, p.err("expected case/default")
+			if !p.cur().Is("case") && !p.cur().Is("default") {
+				break
+			}
 		}
 		for !p.cur().Is("case") && !p.cur().Is("default") && !p.cur().Is("}") {
 			s, err := p.stmt()
@@ -481,8 +494,9 @@ func (p *Parser) prefix() (ast.Expr, error) {
 		if body == nil {
 			body = &ast.Block{Stmts: []ast.Stmt{bodyStmt}}
 		}
+		name := fmt.Sprintf("function_%d_1", 100+p.lamb)
 		p.lamb++
-		return &ast.FnObject{Name: fmt.Sprintf("__lambda_%d", p.lamb), Args: args, Body: body}, nil
+		return &ast.FnObject{Name: name, Args: args, Body: body}, nil
 	}
 	return nil, p.err("expected expression")
 }

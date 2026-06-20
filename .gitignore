@@ -1,4 +1,6 @@
 .gocache/
+.gotmp/
+_check.bytecode
 *.exe
 *.wasm
 *.test
