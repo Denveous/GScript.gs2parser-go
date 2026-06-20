@@ -299,6 +299,15 @@ func (p *Parser) expr(min int) (ast.Expr, error) {
 			left = appendPostfix(left, &ast.ArrayIndex{Exprs: args})
 			continue
 		}
+		if op == "." {
+			p.next()
+			right, err := p.prefix()
+			if err != nil {
+				return nil, err
+			}
+			left = appendPostfix(left, right)
+			continue
+		}
 		if op == "(" {
 			p.next()
 			args, err := p.exprList(")")

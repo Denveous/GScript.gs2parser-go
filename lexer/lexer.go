@@ -53,6 +53,9 @@ func (l *Lexer) next() Token {
 		if s == "TAB" {
 			return Token{Kind: Punct, Lit: "@\t", Line: startLine, Col: startCol}
 		}
+		if s == "xor" {
+			return Token{Kind: Punct, Lit: s, Line: startLine, Col: startCol}
+		}
 		if keywords[s] {
 			return Token{Kind: Keyword, Lit: s, Line: startLine, Col: startCol}
 		}
