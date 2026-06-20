@@ -17,6 +17,7 @@ type Compiler struct {
 	inside, inline                 bool
 	inlineLogical                  bool
 	copyAssign                     bool
+	directBlock                    bool
 	logicalParent                  string
 	lastCallReturn                 bool
 	Joins                          map[string]bool
@@ -58,9 +59,13 @@ func (c *Compiler) Stmt(s ast.Stmt) error {
 	case nil:
 	case *ast.Block:
 		for _, x := range n.Stmts {
+			direct := c.directBlock
+			c.directBlock = true
 			if err := c.Stmt(x); err != nil {
+				c.directBlock = direct
 				return err
 			}
+			c.directBlock = direct
 		}
 	case *ast.FnDecl:
 		return c.fn(n)
@@ -109,7 +114,7 @@ func (c *Compiler) Stmt(s ast.Stmt) error {
 			return err
 		}
 		_, topCall := n.(*ast.FnCall)
-		if c.lastCallReturn && topCall {
+		if c.lastCallReturn && topCall && c.directBlock {
 			c.bc.Op(opcode.IndexDec)
 			c.lastCallReturn = false
 		}
@@ -158,6 +163,7 @@ func (c *Compiler) fn(n *ast.FnDecl) error {
 
 func (c *Compiler) ifStmt(n *ast.If) error {
 	os, of := c.success, c.fail
+	direct := c.directBlock
 	s, f := c.label(), c.label()
 	c.success, c.fail = s, f
 	c.inline = false
@@ -173,9 +179,12 @@ func (c *Compiler) ifStmt(n *ast.If) error {
 	c.bc.Byte(0xF4)
 	c.bc.Short(0)
 	c.at(f, c.bc.Pos()-2)
+	c.directBlock = false
 	if err := c.Stmt(n.Then); err != nil {
+		c.directBlock = direct
 		return err
 	}
+	c.directBlock = direct
 	c.set(f, c.bc.OpIndex()+boolU32(n.Else != nil))
 	c.success, c.fail = os, of
 	if n.Else != nil {
@@ -183,9 +192,12 @@ func (c *Compiler) ifStmt(n *ast.If) error {
 		c.bc.Byte(0xF4)
 		c.bc.Short(0)
 		loc := c.bc.Pos() - 2
+		c.directBlock = false
 		if err := c.Stmt(n.Else); err != nil {
+			c.directBlock = direct
 			return err
 		}
+		c.directBlock = direct
 		c.bc.Short(int16(c.bc.OpIndex()), loc)
 	}
 	return nil
