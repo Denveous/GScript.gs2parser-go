@@ -37,7 +37,11 @@ const result = gs2Compile(source);
 The non-wasm build can be run using:
 
 ```sh
+gs2compiler script.gs2
 gs2compiler -o script.gs2bc script.gs2
+gs2compiler script.gs2 script.gs2bc
+gs2compiler scripts/
+gs2compiler file1.gs2 file2.gs2 file3.gs2
 ```
 
 # Library Usage
