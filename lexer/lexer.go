@@ -44,20 +44,22 @@ func (l *Lexer) next() Token {
 	ch := l.peek()
 	if isAlpha(ch) {
 		s := l.ident()
-		if s == "NL" {
+		lower := strings.ToLower(s)
+		upper := strings.ToUpper(s)
+		if upper == "NL" {
 			return Token{Kind: Punct, Lit: "@\n", Line: startLine, Col: startCol}
 		}
-		if s == "SPC" {
+		if upper == "SPC" {
 			return Token{Kind: Punct, Lit: "@ ", Line: startLine, Col: startCol}
 		}
-		if s == "TAB" {
+		if upper == "TAB" {
 			return Token{Kind: Punct, Lit: "@\t", Line: startLine, Col: startCol}
 		}
-		if s == "xor" {
-			return Token{Kind: Punct, Lit: s, Line: startLine, Col: startCol}
+		if lower == "xor" {
+			return Token{Kind: Punct, Lit: lower, Line: startLine, Col: startCol}
 		}
-		if keywords[s] {
-			return Token{Kind: Keyword, Lit: s, Line: startLine, Col: startCol}
+		if keywords[lower] {
+			return Token{Kind: Keyword, Lit: lower, Line: startLine, Col: startCol}
 		}
 		return Token{Kind: Ident, Lit: s, Line: startLine, Col: startCol}
 	}

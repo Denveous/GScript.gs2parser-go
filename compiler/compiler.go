@@ -132,8 +132,8 @@ func (c *Compiler) fn(n *ast.FnDecl) error {
 	jmpLoc := 0
 	if n.EmitPrejump {
 		c.bc.Op(opcode.SetIndex)
-		c.bc.Byte(0xF4)
-		c.bc.Short(0)
+		c.bc.Byte(0xF5)
+		c.bc.Int(0)
 		jmpLoc = c.bc.Pos()
 	}
 	name := n.Name

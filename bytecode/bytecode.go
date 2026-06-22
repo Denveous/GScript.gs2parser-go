@@ -158,7 +158,11 @@ func (b *Builder) Bytes() []byte {
 			visited[f.Name] = true
 		}
 		if f.JumpLoc != 0 {
-			b.Short(int16(b.opIndex), f.JumpLoc-2)
+			if f.JumpLoc >= 5 && b.buf[f.JumpLoc-5] == 0xF5 {
+				b.Int(int32(b.opIndex), f.JumpLoc-4)
+			} else {
+				b.Short(int16(b.opIndex), f.JumpLoc-2)
+			}
 		}
 	}
 	writeSeg(SegmentFunctionTable, ft.Bytes())
