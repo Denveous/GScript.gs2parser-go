@@ -7,8 +7,9 @@ import (
 )
 
 type Result struct {
-	Bytecode []byte
-	AST      *ast.Block
+	Bytecode    []byte
+	AST         *ast.Block
+	Diagnostics []Diagnostic
 }
 
 func Parse(source string) (*ast.Block, error) {
@@ -16,13 +17,26 @@ func Parse(source string) (*ast.Block, error) {
 }
 
 func Compile(source string) (*Result, error) {
+	res := CompileDetailed(source)
+	if len(res.Diagnostics) != 0 {
+		return nil, &DiagnosticError{Diagnostics: res.Diagnostics}
+	}
+	return res, nil
+}
+
+func CompileDetailed(source string) *Result {
+	res := &Result{}
 	root, err := parser.Parse(source)
 	if err != nil {
-		return nil, err
+		res.Diagnostics = diagnosticsFromError(source, "parser", err)
+		return res
 	}
+	res.AST = root
 	code, err := compiler.Compile(root)
 	if err != nil {
-		return nil, err
+		res.Diagnostics = diagnosticsFromError(source, "compiler", err)
+		return res
 	}
-	return &Result{Bytecode: code, AST: root}, nil
+	res.Bytecode = code
+	return res
 }

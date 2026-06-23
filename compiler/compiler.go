@@ -132,8 +132,8 @@ func (c *Compiler) fn(n *ast.FnDecl) error {
 	jmpLoc := 0
 	if n.EmitPrejump {
 		c.bc.Op(opcode.SetIndex)
-		c.bc.Byte(0xF5)
-		c.bc.Int(0)
+		c.bc.Byte(0xF4)
+		c.bc.Short(0)
 		jmpLoc = c.bc.Pos()
 	}
 	name := n.Name
@@ -700,122 +700,64 @@ func (c *Compiler) ternary(n *ast.Ternary) error {
 
 func (c *Compiler) logical(n *ast.Binary) error {
 	first := !c.inside
-	inlineLogical := c.inlineLogical
-	os, of := c.success, c.fail
-	var label uint32
+	saveFail, saveSuccess := c.fail, c.success
 	if first {
 		c.inside = true
 		if c.inline {
-			c.inlineLogical = true
-			label = c.label()
-			c.success, c.fail = label, label
+			l := c.label()
+			c.success, c.fail = l, l
 		}
 	}
-	parent := c.logicalParent
-	if n.Op == "||" {
-		nextFail := c.label()
-		c.fail = nextFail
-		c.logicalParent = n.Op
-		c.Expr(n.Left)
-		c.logicalParent = parent
-		c.bc.Convert(string(n.Left.Type()), string(ast.Number))
-		c.bc.Op(opcode.Or)
-		c.bc.Byte(0xF4)
-		c.bc.Short(0)
-		c.at(c.success, c.bc.Pos()-2)
-		c.set(nextFail, c.bc.OpIndex())
-		c.success, c.fail = os, of
-		c.logicalParent = n.Op
-		c.Expr(n.Right)
-		c.logicalParent = parent
-		c.bc.Convert(string(n.Right.Type()), string(ast.Number))
-		if first && c.inline {
-			if label != 0 {
-				c.set(label, c.bc.OpIndex())
-			}
-			c.bc.Op(opcode.InlineConditional)
-		}
-		if first {
-			c.inside = false
-			c.inlineLogical = inlineLogical
-			c.success, c.fail = os, of
-		}
-		return nil
-	}
-	if n.Op == "&&" && (!c.inline || inlineLogical || !first || hasLogicalOp(n.Left, "||")) {
+	tmpSuccess, tmpFail := c.success, c.fail
+	inline := c.inline
+	if n.Op == "&&" {
 		nextSuccess := c.label()
 		c.success = nextSuccess
-		c.logicalParent = n.Op
-		c.Expr(n.Left)
-		c.logicalParent = parent
+		if err := c.Expr(n.Left); err != nil {
+			return err
+		}
 		c.bc.Convert(string(n.Left.Type()), string(ast.Number))
 		c.set(nextSuccess, c.bc.OpIndex())
-		failTarget := c.fail
-		c.success, c.fail = os, of
-		if c.inline {
+		c.success, c.fail = tmpSuccess, tmpFail
+		if inline {
 			c.bc.Op(opcode.And)
 		} else {
 			c.bc.Op(opcode.If)
 		}
 		c.bc.Byte(0xF4)
 		c.bc.Short(0)
-		c.at(failTarget, c.bc.Pos()-2)
-		c.logicalParent = n.Op
-		c.Expr(n.Right)
-		c.logicalParent = parent
+		c.at(c.fail, c.bc.Pos()-2)
+		if err := c.Expr(n.Right); err != nil {
+			return err
+		}
 		c.bc.Convert(string(n.Right.Type()), string(ast.Number))
-		if first && c.inline {
-			if label != 0 {
-				c.set(label, c.bc.OpIndex())
-			}
-			c.bc.Op(opcode.InlineConditional)
+	} else if n.Op == "||" {
+		nextFail := c.label()
+		c.fail = nextFail
+		if err := c.Expr(n.Left); err != nil {
+			return err
 		}
-		if first {
-			c.inside = false
-			c.inlineLogical = inlineLogical
-			c.success, c.fail = os, of
-		}
-		return nil
-	}
-	c.logicalParent = n.Op
-	c.Expr(n.Left)
-	c.logicalParent = parent
-	c.bc.Convert(string(n.Left.Type()), string(ast.Number))
-	if n.Op == "&&" && !c.inline {
-		c.bc.Op(opcode.If)
-	} else if n.Op == "&&" {
-		c.bc.Op(opcode.And)
-	} else {
+		c.bc.Convert(string(n.Left.Type()), string(ast.Number))
 		c.bc.Op(opcode.Or)
-	}
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	loc := c.bc.Pos() - 2
-	c.logicalParent = n.Op
-	c.Expr(n.Right)
-	c.logicalParent = parent
-	c.bc.Convert(string(n.Right.Type()), string(ast.Number))
-	target := c.bc.OpIndex()
-	if !first && n.Op == "&&" && parent == "||" {
-		target++
-	}
-	if n.Op == "&&" && (!c.inline || (c.inlineLogical && parent != "||")) {
-		c.at(c.fail, loc)
-	} else if n.Op == "||" && (!c.inline || c.inlineLogical) {
-		c.at(c.success, loc)
-	} else {
-		c.bc.Short(int16(target), loc)
-	}
-	if first && c.inline {
-		if label != 0 {
-			c.set(label, c.bc.OpIndex())
+		c.bc.Byte(0xF4)
+		c.bc.Short(0)
+		c.at(c.success, c.bc.Pos()-2)
+		c.set(nextFail, c.bc.OpIndex())
+		c.success, c.fail = tmpSuccess, tmpFail
+		if err := c.Expr(n.Right); err != nil {
+			return err
 		}
-		c.bc.Op(opcode.InlineConditional)
+		c.bc.Convert(string(n.Right.Type()), string(ast.Number))
 	}
 	if first {
+		c.set(tmpSuccess, c.bc.OpIndex())
+		c.fail, c.success = saveFail, saveSuccess
 		c.inside = false
-		c.inlineLogical = inlineLogical
-		c.success, c.fail = os, of
+		if inline {
+			c.bc.Op(opcode.InlineConditional)
+		}
+	} else {
+		c.success, c.fail = tmpSuccess, tmpFail
 	}
 	return nil
 }

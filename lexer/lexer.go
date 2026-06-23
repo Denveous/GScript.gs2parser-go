@@ -30,7 +30,8 @@ func Lex(src string) ([]Token, error) {
 		}
 	}
 	if out[len(out)-1].Kind == Illegal {
-		return out, strconv.ErrSyntax
+		t := out[len(out)-1]
+		return out, &Error{Message: "illegal token", Line: t.Line, Column: t.Col, Near: t.Lit}
 	}
 	return out, nil
 }
@@ -45,14 +46,13 @@ func (l *Lexer) next() Token {
 	if isAlpha(ch) {
 		s := l.ident()
 		lower := strings.ToLower(s)
-		upper := strings.ToUpper(s)
-		if upper == "NL" {
+		if s == "NL" {
 			return Token{Kind: Punct, Lit: "@\n", Line: startLine, Col: startCol}
 		}
-		if upper == "SPC" {
+		if s == "SPC" {
 			return Token{Kind: Punct, Lit: "@ ", Line: startLine, Col: startCol}
 		}
-		if upper == "TAB" {
+		if s == "TAB" {
 			return Token{Kind: Punct, Lit: "@\t", Line: startLine, Col: startCol}
 		}
 		if lower == "xor" {

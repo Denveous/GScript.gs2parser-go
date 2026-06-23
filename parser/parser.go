@@ -645,5 +645,5 @@ func (p *Parser) expectKind(k lexer.Kind) lexer.Token {
 func (p *Parser) atEnd() bool { return p.cur().Kind == lexer.EOF }
 func (p *Parser) err(s string) error {
 	t := p.cur()
-	return fmt.Errorf("%s at %d:%d near %q", s, t.Line, t.Col, t.Lit)
+	return &Error{Message: s, Line: t.Line, Column: t.Col, Near: t.Lit}
 }
