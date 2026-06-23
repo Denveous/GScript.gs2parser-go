@@ -107,3 +107,21 @@ func TestCompileDetailedSupportsCommonGS2CompatibilitySyntax(t *testing.T) {
 		t.Fatal("expected bytecode")
 	}
 }
+
+func TestCompileDetailedUsesWideWithJumpForNestedGuiControls(t *testing.T) {
+	res := CompileDetailed(`//#CLIENTSIDE
+function onCreated() {
+  new GuiWindowCtrl("Parent") {
+    new GuiButtonCtrl("Child") {
+      text = "Child";
+    }
+  }
+  if (isObject("Parent")) Parent.clearcontrols();
+}`)
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
+	}
+	if !strings.Contains(string(res.Bytecode), "\x96\xf5") {
+		t.Fatalf("compiled GUI bytecode does not contain OP_WITH with wide jump operand")
+	}
+}

@@ -53,9 +53,19 @@ func (c *Compiler) writeLabels() {
 			continue
 		}
 		for _, pos := range locs {
-			c.bc.Short(int16(c.addrs[l]), pos)
+			c.bc.Int(int32(c.addrs[l]), pos)
 		}
 	}
+}
+func (c *Compiler) jumpPlaceholder(l uint32) {
+	c.bc.Byte(0xF5)
+	c.bc.Int(0)
+	c.at(l, c.bc.Pos()-4)
+}
+func (c *Compiler) intPlaceholder() int {
+	c.bc.Byte(0xF5)
+	c.bc.Int(0)
+	return c.bc.Pos() - 4
 }
 
 func (c *Compiler) Stmt(s ast.Stmt) error {
@@ -94,17 +104,13 @@ func (c *Compiler) Stmt(s ast.Stmt) error {
 			return nil
 		}
 		c.bc.Op(opcode.SetIndex)
-		c.bc.Byte(0xF4)
-		c.bc.Short(0)
-		c.at(c.brk, c.bc.Pos()-2)
+		c.jumpPlaceholder(c.brk)
 	case *ast.Continue:
 		if c.cont == 0 {
 			return nil
 		}
 		c.bc.Op(opcode.SetIndex)
-		c.bc.Byte(0xF4)
-		c.bc.Short(0)
-		c.at(c.cont, c.bc.Pos()-2)
+		c.jumpPlaceholder(c.cont)
 	case *ast.Return:
 		if n.Value != nil {
 			if err := c.Expr(n.Value); err != nil {
@@ -134,8 +140,7 @@ func (c *Compiler) fn(n *ast.FnDecl) error {
 	jmpLoc := 0
 	if n.EmitPrejump {
 		c.bc.Op(opcode.SetIndex)
-		c.bc.Byte(0xF4)
-		c.bc.Short(0)
+		c.intPlaceholder()
 		jmpLoc = c.bc.Pos()
 	}
 	name := n.Name
@@ -200,9 +205,7 @@ func (c *Compiler) ifStmt(n *ast.If) error {
 	}
 	c.set(s, c.bc.OpIndex())
 	c.bc.Op(opcode.If)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	c.at(f, c.bc.Pos()-2)
+	c.jumpPlaceholder(f)
 	c.directBlock = false
 	if err := c.Stmt(n.Then); err != nil {
 		c.directBlock = direct
@@ -213,16 +216,14 @@ func (c *Compiler) ifStmt(n *ast.If) error {
 	c.success, c.fail = os, of
 	if n.Else != nil {
 		c.bc.Op(opcode.SetIndex)
-		c.bc.Byte(0xF4)
-		c.bc.Short(0)
-		loc := c.bc.Pos() - 2
+		loc := c.intPlaceholder()
 		c.directBlock = false
 		if err := c.Stmt(n.Else); err != nil {
 			c.directBlock = direct
 			return err
 		}
 		c.directBlock = direct
-		c.bc.Short(int16(c.bc.OpIndex()), loc)
+		c.bc.Int(int32(c.bc.OpIndex()), loc)
 	}
 	return nil
 }
@@ -239,9 +240,7 @@ func (c *Compiler) whileStmt(n *ast.While) error {
 	c.inline = true
 	c.bc.Convert(string(n.Cond.Type()), string(ast.Number))
 	c.bc.Op(opcode.If)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	c.at(c.brk, c.bc.Pos()-2)
+	c.jumpPlaceholder(c.brk)
 	c.bc.Op(opcode.CmdCall)
 	c.directBlock = false
 	if err := c.Stmt(n.Body); err != nil {
@@ -250,9 +249,7 @@ func (c *Compiler) whileStmt(n *ast.While) error {
 	}
 	c.directBlock = direct
 	c.bc.Op(opcode.SetIndex)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	c.at(c.cont, c.bc.Pos()-2)
+	c.jumpPlaceholder(c.cont)
 	c.set(c.brk, c.bc.OpIndex())
 	c.success, c.fail, c.brk, c.cont = os, of, ob, oc
 	return nil
@@ -303,9 +300,7 @@ func (c *Compiler) forStmt(n *ast.For) error {
 	ob, oc := c.brk, c.cont
 	c.brk, c.cont = c.label(), c.label()
 	c.bc.Op(opcode.If)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	c.at(c.brk, c.bc.Pos()-2)
+	c.jumpPlaceholder(c.brk)
 	c.bc.Op(opcode.CmdCall)
 	c.directBlock = false
 	if err := c.Stmt(n.Body); err != nil {
@@ -336,9 +331,7 @@ func (c *Compiler) foreachStmt(n *ast.ForEach) error {
 	c.brk, c.cont = c.label(), c.label()
 	start := c.bc.OpIndex()
 	c.bc.Op(opcode.ForEach)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	c.at(c.brk, c.bc.Pos()-2)
+	c.jumpPlaceholder(c.brk)
 	c.bc.Op(opcode.CmdCall)
 	c.directBlock = false
 	if err := c.Stmt(n.Body); err != nil {
@@ -361,9 +354,7 @@ func (c *Compiler) switchStmt(n *ast.Switch) error {
 	c.brk = c.label()
 	var caseLabels []uint32
 	c.bc.Op(opcode.SetIndex)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	caseTestLoc := c.bc.Pos() - 2
+	caseTestLoc := c.intPlaceholder()
 	for _, cs := range n.Cases {
 		lbl := c.label()
 		c.set(lbl, c.bc.OpIndex())
@@ -375,7 +366,7 @@ func (c *Compiler) switchStmt(n *ast.Switch) error {
 			return err
 		}
 	}
-	c.bc.Short(int16(c.bc.OpIndex()), caseTestLoc)
+	c.bc.Int(int32(c.bc.OpIndex()), caseTestLoc)
 	if err := c.Expr(n.Target); err != nil {
 		return err
 	}
@@ -409,14 +400,12 @@ func (c *Compiler) withStmt(n *ast.With) error {
 	}
 	c.bc.Op(opcode.ConvToObject)
 	c.bc.Op(opcode.With)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	loc := c.bc.Pos() - 2
+	loc := c.intPlaceholder()
 	if err := c.Stmt(n.Body); err != nil {
 		return err
 	}
 	c.bc.Op(opcode.WithEnd)
-	c.bc.Short(int16(c.bc.OpIndex()), loc)
+	c.bc.Int(int32(c.bc.OpIndex()), loc)
 	return nil
 }
 
@@ -436,9 +425,7 @@ func (c *Compiler) newStmt(n *ast.NewStmt) error {
 	c.bc.Op(opcode.Assign)
 	c.bc.Op(opcode.ConvToObject)
 	c.bc.Op(opcode.With)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	loc := c.bc.Pos() - 2
+	loc := c.intPlaceholder()
 	prev := c.newObjectCount
 	c.newObjectCount++
 	if n.Body != nil {
@@ -447,7 +434,7 @@ func (c *Compiler) newStmt(n *ast.NewStmt) error {
 		}
 	}
 	c.bc.Op(opcode.WithEnd)
-	c.bc.Short(int16(c.bc.OpIndex()), loc)
+	c.bc.Int(int32(c.bc.OpIndex()), loc)
 	for i := 0; i < c.newObjectCount-prev; i++ {
 		c.bc.Op(opcode.TypeArray)
 		c.bc.Op(opcode.SwapLastOps)
@@ -554,11 +541,9 @@ func (c *Compiler) Expr(e ast.Expr) error {
 		c.bc.Op(opcode.ArrayEnd)
 	case *ast.FnObject:
 		c.bc.Op(opcode.SetIndex)
-		c.bc.Byte(0xF4)
-		c.bc.Short(0)
-		loc := c.bc.Pos()
+		loc := c.intPlaceholder()
 		c.fn(&ast.FnDecl{Public: true, Name: n.Name, Args: n.Args, Body: n.Body})
-		c.bc.Short(int16(c.bc.OpIndex()), loc-2)
+		c.bc.Int(int32(c.bc.OpIndex()), loc)
 		c.bc.Op(opcode.This)
 		c.str(n.Name, opcode.TypeVar)
 		c.bc.Op(opcode.MemberAccess)
@@ -718,15 +703,11 @@ func (c *Compiler) ternary(n *ast.Ternary) error {
 	}
 	fail, succ := c.label(), c.label()
 	c.bc.Op(opcode.If)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	c.at(fail, c.bc.Pos()-2)
+	c.jumpPlaceholder(fail)
 	c.Expr(n.Left)
 	c.set(fail, c.bc.OpIndex()+1)
 	c.bc.Op(opcode.SetIndex)
-	c.bc.Byte(0xF4)
-	c.bc.Short(0)
-	c.at(succ, c.bc.Pos()-2)
+	c.jumpPlaceholder(succ)
 	c.Expr(n.Right)
 	c.set(succ, c.bc.OpIndex())
 	return nil
@@ -758,9 +739,7 @@ func (c *Compiler) logical(n *ast.Binary) error {
 		} else {
 			c.bc.Op(opcode.If)
 		}
-		c.bc.Byte(0xF4)
-		c.bc.Short(0)
-		c.at(c.fail, c.bc.Pos()-2)
+		c.jumpPlaceholder(c.fail)
 		if err := c.Expr(n.Right); err != nil {
 			return err
 		}
@@ -773,9 +752,7 @@ func (c *Compiler) logical(n *ast.Binary) error {
 		}
 		c.bc.Convert(string(n.Left.Type()), string(ast.Number))
 		c.bc.Op(opcode.Or)
-		c.bc.Byte(0xF4)
-		c.bc.Short(0)
-		c.at(c.success, c.bc.Pos()-2)
+		c.jumpPlaceholder(c.success)
 		c.set(nextFail, c.bc.OpIndex())
 		c.success, c.fail = tmpSuccess, tmpFail
 		if err := c.Expr(n.Right); err != nil {
