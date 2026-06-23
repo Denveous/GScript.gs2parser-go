@@ -94,6 +94,15 @@ func TestCompileMinMaxPreservesArgumentOrder(t *testing.T) {
 	}
 }
 
+func TestCompileObjectBuiltinDoesNotForceCmdCall(t *testing.T) {
+	ops := compileOps(t, `function onCreated() {
+  this.scale_max = this.fast_scales[this.fast_scales.size() - 1];
+}`)
+	if bytes.Contains(ops, []byte{byte(opcode.CmdCall)}) {
+		t.Fatal("object builtin call should not force function cmdcall marker")
+	}
+}
+
 func compileOps(t *testing.T, src string) []byte {
 	t.Helper()
 	return segment(t, compileCode(t, src), bytecode.SegmentBytecode)

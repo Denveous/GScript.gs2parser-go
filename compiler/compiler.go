@@ -146,6 +146,7 @@ func (c *Compiler) Stmt(s ast.Stmt) error {
 func (c *Compiler) fn(n *ast.FnDecl) error {
 	prevCallLocals := c.fnCallLocals
 	c.fnCallLocals = repeatedBareCallLocals(n.Body)
+	hasCalls := hasFunctionCall(n.Body)
 	defer func() { c.fnCallLocals = prevCallLocals }()
 	jmpLoc := 0
 	if n.EmitPrejump {
@@ -172,7 +173,7 @@ func (c *Compiler) fn(n *ast.FnDecl) error {
 	}
 	c.bc.Op(opcode.FuncParamsEnd)
 	c.bc.Op(opcode.Jmp)
-	if hasFunctionCall(n.Body) {
+	if hasCalls {
 		c.bc.Op(opcode.CmdCall)
 	}
 	c.emitCallLocals()
@@ -1388,6 +1389,20 @@ func hasFunctionCall(s ast.Stmt) bool {
 	case *ast.Cast:
 		return hasFunctionCall(n.Value)
 	case *ast.FnCall:
+		if n.Object == nil {
+			return true
+		}
+		if n.Func.Text() == "size" {
+			if hasFunctionCall(n.Object) || hasFunctionCall(n.Func) {
+				return true
+			}
+			for _, a := range n.Args {
+				if hasFunctionCall(a) {
+					return true
+				}
+			}
+			return false
+		}
 		return true
 	case *ast.NewObject:
 		for _, a := range n.Args {
