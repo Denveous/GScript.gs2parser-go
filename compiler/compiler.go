@@ -20,7 +20,6 @@ type Compiler struct {
 	inlineLogical                  bool
 	copyAssign                     bool
 	directBlock                    bool
-	objectScope                    int
 	logicalParent                  string
 	lastCallReturn                 bool
 	negFloats                      map[string]int
@@ -402,10 +401,7 @@ func (c *Compiler) withStmt(n *ast.With) error {
 	c.bc.Op(opcode.ConvToObject)
 	c.bc.Op(opcode.With)
 	loc := c.intPlaceholder()
-	c.objectScope++
-	err := c.Stmt(n.Body)
-	c.objectScope--
-	if err != nil {
+	if err := c.Stmt(n.Body); err != nil {
 		return err
 	}
 	c.bc.Op(opcode.WithEnd)
@@ -433,10 +429,7 @@ func (c *Compiler) newStmt(n *ast.NewStmt) error {
 	prev := c.newObjectCount
 	c.newObjectCount++
 	if n.Body != nil {
-		c.objectScope++
-		err := c.Stmt(n.Body)
-		c.objectScope--
-		if err != nil {
+		if err := c.Stmt(n.Body); err != nil {
 			return err
 		}
 	}
@@ -835,10 +828,6 @@ func dynamicMemberAdd(e ast.Expr) bool {
 
 func (c *Compiler) call(n *ast.FnCall) error {
 	isObj := n.Object != nil
-	if !isObj && c.objectScope > 0 && scopedObjectCall(n.Func.Text()) {
-		n = &ast.FnCall{Func: n.Func, Object: &ast.Identifier{Name: "this"}, Args: n.Args}
-		isObj = true
-	}
 	if isObj {
 		switch n.Func.Text() {
 		case "lower":
@@ -921,15 +910,6 @@ func (c *Compiler) call(n *ast.FnCall) error {
 		c.Joins[n.Args[0].Text()] = true
 	}
 	return nil
-}
-
-func scopedObjectCall(name string) bool {
-	switch strings.ToLower(name) {
-	case "addcontrol", "addrow", "clearcontrols", "clearrows", "clearselection", "destroy", "hide", "removecontrol", "setselectedrow", "show":
-		return true
-	default:
-		return false
-	}
 }
 
 func (c *Compiler) objectAliasCall(name string, target ast.Expr) error {

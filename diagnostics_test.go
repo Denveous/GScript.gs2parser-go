@@ -136,7 +136,10 @@ function onCreated() {
 	if len(res.Diagnostics) != 0 {
 		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
 	}
-	if !strings.Contains(string(res.Bytecode), "this\x00") || !strings.Contains(string(res.Bytecode), "clearcontrols\x00") {
-		t.Fatal("expected bare GUI method to compile through the current object")
+	if strings.Contains(string(res.Bytecode), "this\x00") {
+		t.Fatal("bare GUI method should not compile through this object")
+	}
+	if !strings.Contains(string(res.Bytecode), "\x17") || !strings.Contains(string(res.Bytecode), "clearcontrols\x00") {
+		t.Fatal("expected bare GUI method to compile as scoped call inside with")
 	}
 }
