@@ -5,7 +5,7 @@ package main
 import (
 	"syscall/js"
 
-	"gs2parser"
+	"github.com/MorenoLand/GScript.gs2parser-go"
 )
 
 func main() {

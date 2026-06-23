@@ -1,9 +1,9 @@
 package gs2parser
 
 import (
-	"gs2parser/ast"
-	"gs2parser/compiler"
-	"gs2parser/parser"
+	"github.com/MorenoLand/GScript.gs2parser-go/ast"
+	"github.com/MorenoLand/GScript.gs2parser-go/compiler"
+	"github.com/MorenoLand/GScript.gs2parser-go/parser"
 )
 
 type Result struct {

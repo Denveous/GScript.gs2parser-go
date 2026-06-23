@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gs2parser"
+	"github.com/MorenoLand/GScript.gs2parser-go"
 )
 
 type arguments struct {

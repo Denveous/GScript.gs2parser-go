@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"gs2parser/ast"
-	"gs2parser/lexer"
+	"github.com/MorenoLand/GScript.gs2parser-go/ast"
+	"github.com/MorenoLand/GScript.gs2parser-go/lexer"
 )
 
 type Parser struct {

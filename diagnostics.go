@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"gs2parser/lexer"
-	"gs2parser/parser"
+	"github.com/MorenoLand/GScript.gs2parser-go/lexer"
+	"github.com/MorenoLand/GScript.gs2parser-go/parser"
 )
 
 type Diagnostic struct {

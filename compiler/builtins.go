@@ -1,6 +1,6 @@
 package compiler
 
-import "gs2parser/opcode"
+import "github.com/MorenoLand/GScript.gs2parser-go/opcode"
 
 type flags uint8
 

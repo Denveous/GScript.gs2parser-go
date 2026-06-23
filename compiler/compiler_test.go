@@ -3,7 +3,7 @@ package compiler
 import (
 	"testing"
 
-	"gs2parser/parser"
+	"github.com/MorenoLand/GScript.gs2parser-go/parser"
 )
 
 func TestCompileBasic(t *testing.T) {

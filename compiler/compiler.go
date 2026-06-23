@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"gs2parser/ast"
-	"gs2parser/bytecode"
-	"gs2parser/opcode"
+	"github.com/MorenoLand/GScript.gs2parser-go/ast"
+	"github.com/MorenoLand/GScript.gs2parser-go/bytecode"
+	"github.com/MorenoLand/GScript.gs2parser-go/opcode"
 )
 
 type Compiler struct {

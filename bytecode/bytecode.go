@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"math"
 
-	"gs2parser/opcode"
+	"github.com/MorenoLand/GScript.gs2parser-go/opcode"
 )
 
 const (
