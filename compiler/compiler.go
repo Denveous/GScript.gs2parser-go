@@ -54,19 +54,19 @@ func (c *Compiler) writeLabels() {
 			continue
 		}
 		for _, pos := range locs {
-			c.bc.Int(int32(c.addrs[l]), pos)
+			c.bc.Short(int16(c.addrs[l]), pos)
 		}
 	}
 }
 func (c *Compiler) jumpPlaceholder(l uint32) {
-	c.bc.Byte(0xF5)
-	c.bc.Int(0)
-	c.at(l, c.bc.Pos()-4)
+	c.bc.Byte(0xF4)
+	c.bc.Short(0)
+	c.at(l, c.bc.Pos()-2)
 }
 func (c *Compiler) intPlaceholder() int {
-	c.bc.Byte(0xF5)
-	c.bc.Int(0)
-	return c.bc.Pos() - 4
+	c.bc.Byte(0xF4)
+	c.bc.Short(0)
+	return c.bc.Pos() - 2
 }
 
 func (c *Compiler) Stmt(s ast.Stmt) error {
@@ -224,7 +224,7 @@ func (c *Compiler) ifStmt(n *ast.If) error {
 			return err
 		}
 		c.directBlock = direct
-		c.bc.Int(int32(c.bc.OpIndex()), loc)
+		c.bc.Short(int16(c.bc.OpIndex()), loc)
 	}
 	return nil
 }
@@ -367,7 +367,7 @@ func (c *Compiler) switchStmt(n *ast.Switch) error {
 			return err
 		}
 	}
-	c.bc.Int(int32(c.bc.OpIndex()), caseTestLoc)
+	c.bc.Short(int16(c.bc.OpIndex()), caseTestLoc)
 	if err := c.Expr(n.Target); err != nil {
 		return err
 	}
@@ -409,7 +409,7 @@ func (c *Compiler) withStmt(n *ast.With) error {
 		return err
 	}
 	c.bc.Op(opcode.WithEnd)
-	c.bc.Int(int32(c.bc.OpIndex()), loc)
+	c.bc.Short(int16(c.bc.OpIndex()), loc)
 	return nil
 }
 
@@ -441,7 +441,7 @@ func (c *Compiler) newStmt(n *ast.NewStmt) error {
 		}
 	}
 	c.bc.Op(opcode.WithEnd)
-	c.bc.Int(int32(c.bc.OpIndex()), loc)
+	c.bc.Short(int16(c.bc.OpIndex()), loc)
 	for i := 0; i < c.newObjectCount-prev; i++ {
 		c.bc.Op(opcode.TypeArray)
 		c.bc.Op(opcode.SwapLastOps)
@@ -550,7 +550,7 @@ func (c *Compiler) Expr(e ast.Expr) error {
 		c.bc.Op(opcode.SetIndex)
 		loc := c.intPlaceholder()
 		c.fn(&ast.FnDecl{Public: true, Name: n.Name, Args: n.Args, Body: n.Body})
-		c.bc.Int(int32(c.bc.OpIndex()), loc)
+		c.bc.Short(int16(c.bc.OpIndex()), loc)
 		c.bc.Op(opcode.This)
 		c.str(n.Name, opcode.TypeVar)
 		c.bc.Op(opcode.MemberAccess)
@@ -836,7 +836,7 @@ func dynamicMemberAdd(e ast.Expr) bool {
 func (c *Compiler) call(n *ast.FnCall) error {
 	isObj := n.Object != nil
 	if !isObj && c.objectScope > 0 && scopedObjectCall(n.Func.Text()) {
-		n = &ast.FnCall{Func: n.Func, Object: &ast.Identifier{Name: "this", CheckReserved: true}, Args: n.Args}
+		n = &ast.FnCall{Func: n.Func, Object: &ast.Identifier{Name: "this"}, Args: n.Args}
 		isObj = true
 	}
 	if isObj {
@@ -979,6 +979,10 @@ func (c *Compiler) sigConvertReverse(e ast.Expr, sig string, i int) {
 }
 func (c *Compiler) ident(n *ast.Identifier) {
 	if n.CheckReserved {
+		if v, ok := reservedConst(n.Name); ok {
+			c.num(v)
+			return
+		}
 		switch n.Name {
 		case "this":
 			c.bc.Op(opcode.This)
@@ -1013,6 +1017,22 @@ func (c *Compiler) ident(n *ast.Identifier) {
 		}
 	}
 	c.str(n.Name, opcode.TypeVar)
+}
+func reservedConst(name string) (int32, bool) {
+	switch strings.ToUpper(name) {
+	case "VK_LEFT":
+		return 37, true
+	case "VK_UP":
+		return 38, true
+	case "VK_RIGHT":
+		return 39, true
+	case "VK_DOWN":
+		return 40, true
+	case "VK_DELETE":
+		return 46, true
+	default:
+		return 0, false
+	}
 }
 func (c *Compiler) num(v int32) { c.bc.Op(opcode.TypeNumber); c.bc.DynamicNumber(v) }
 func (c *Compiler) str(s string, op opcode.Opcode) {

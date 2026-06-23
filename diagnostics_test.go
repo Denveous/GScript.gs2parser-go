@@ -108,7 +108,7 @@ func TestCompileDetailedSupportsCommonGS2CompatibilitySyntax(t *testing.T) {
 	}
 }
 
-func TestCompileDetailedUsesWideWithJumpForNestedGuiControls(t *testing.T) {
+func TestCompileDetailedUsesShortWithJumpForNestedGuiControls(t *testing.T) {
 	res := CompileDetailed(`//#CLIENTSIDE
 function onCreated() {
   new GuiWindowCtrl("Parent") {
@@ -121,8 +121,8 @@ function onCreated() {
 	if len(res.Diagnostics) != 0 {
 		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
 	}
-	if !strings.Contains(string(res.Bytecode), "\x96\xf5") {
-		t.Fatalf("compiled GUI bytecode does not contain OP_WITH with wide jump operand")
+	if !strings.Contains(string(res.Bytecode), "\x96\xf4") {
+		t.Fatalf("compiled GUI bytecode does not contain OP_WITH with short jump operand")
 	}
 }
 
@@ -136,30 +136,7 @@ function onCreated() {
 	if len(res.Diagnostics) != 0 {
 		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
 	}
-	if !hasThisMemberCall(res.Bytecode) {
-		t.Fatal("expected bare GUI method to compile as this.method() member call")
+	if !strings.Contains(string(res.Bytecode), "this\x00") || !strings.Contains(string(res.Bytecode), "clearcontrols\x00") {
+		t.Fatal("expected bare GUI method to compile through the current object")
 	}
-}
-
-func hasThisMemberCall(bytecode []byte) bool {
-	for i := 0; i < len(bytecode)-5; i++ {
-		if bytecode[i] != 180 || bytecode[i+1] != 22 {
-			continue
-		}
-		j := i + 2
-		switch bytecode[j] {
-		case 0xF0:
-			j += 2
-		case 0xF1:
-			j += 3
-		case 0xF2:
-			j += 5
-		default:
-			continue
-		}
-		if j+1 < len(bytecode) && bytecode[j] == 35 && bytecode[j+1] == 6 {
-			return true
-		}
-	}
-	return false
 }
